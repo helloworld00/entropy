@@ -6,7 +6,6 @@ import(
 	"flag"
 	"os"
 	"time"
-	"strings"
 )
 
 type treeNode struct {
@@ -18,29 +17,20 @@ type treeNode struct {
 
 	isDir bool
 	name string
+	path string
 }
 
-func (node *treeNode) setFromInfo(info os.FileInfo) {
+func (node *treeNode) setInfo(info os.FileInfo, path string) {
 	node.name = info.Name()
 	node.isDir = info.IsDir()
 	if !node.isDir {
 		node.size = info.Size()
 	}
-}
-
-func (node *treeNode) getNodePath() string {
-	path := node.name
-	parent := node.parent
-	for parent != nil && parent.parent != nil {//without root
-		path = filepath.Join(parent.name, path)
-		parent = parent.parent
-	}
-
-	return path
+	node.path = path
 }
 
 func (node *treeNode) output() {
-	fmt.Println(node.getNodePath(), node.name, node.size)
+	fmt.Println(node.path, node.name, node.size)
 	if node.child != nil {
 		node.child.output()
 	}
@@ -56,20 +46,23 @@ type result struct {
 	startTime time.Time
 	rootPath string
 
+	nodeCache map[string]*treeNode
 	duplicatedMap map[int64][]*treeNode
 }
 
-func (ret *result) insertNode(node *treeNode, path string) {
+func (ret *result) insertNode(node *treeNode) {
 	if ret.rootNode == nil {
 		ret.rootNode = node
 		ret.startTime = time.Now()
-		ret.rootPath = path
+		ret.rootPath = node.path
+		ret.nodeCache = make(map[string]*treeNode)
+		ret.nodeCache[node.path] = node
 		ret.duplicatedMap = make(map[int64][]*treeNode)
 		ret.duplicatedMap[node.size] = append(ret.duplicatedMap[node.size], node)
 		return
 	}
-	dir := filepath.Dir(path)
-	parentNode := ret.findNode(dir)
+	dir := filepath.Dir(node.path)
+	parentNode := ret.nodeCache[dir]
 	node.parent = parentNode
 
 	if parentNode.child == nil {
@@ -94,30 +87,8 @@ func (ret *result) insertNode(node *treeNode, path string) {
 	} else {
 		ret.fileCount++
 	}
+	ret.nodeCache[node.path] = node
 	ret.duplicatedMap[node.size] = append(ret.duplicatedMap[node.size], node)
-}
-
-func (ret *result) findNode(path string)  *treeNode {
-	if path == ret.rootPath {
-		return ret.rootNode
-	}
-	rel, err := filepath.Rel(ret.rootPath, path)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	list := strings.Split(rel, string(os.PathSeparator))
-	node := ret.rootNode
-	for _,part := range list {
-		node = node.child
-		for node != nil {
-			if node.name == part {
-				break
-			}
-			node = node.sibling
-		}
-	}
-	return node
 }
 
 func (ret *result) output() {
@@ -135,7 +106,7 @@ func (ret *result) output() {
 		}
 		//hashmap := make(map[string][]*treeNode)
 		for _,n :=  range v {
-			fmt.Println(filepath.Join(ret.rootPath, n.getNodePath() ) )
+			fmt.Println(n.path)
 		}
 		//hashmap = nil
 		fmt.Println("")
@@ -161,8 +132,8 @@ func walkThrough(root string) *result{
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error{
 		node := &treeNode{}
-		node.setFromInfo(info)
-		ret.insertNode(node, path)
+		node.setInfo(info, path)
+		ret.insertNode(node)
 		return nil
 	})
 	if err != nil {
