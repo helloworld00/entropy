@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="./bootstrap/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="./fontawesome/css/font-awesome.min.css" />
+    <link rel="stylesheet" href="./finder/finderjs.css" />
+    <style type="text/css">
+        .fjs-col {
+            width: 220px;
+        }
+        .leaf-col{
+            max-width: none;
+        }
+        .sizestr {
+            color: #a3a3a3;
+        }
+        .fjs-item a {
+            align-items: center;
+        }
+        .namelabel {
+            display: flex;justify-content:flex-end;
+            flex: auto;
+            align-items: center;
+        }
+        .fa-caret-right {
+            flex: none;
+        }
+        .namelabel p {
+            flex: auto;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-bottom: 0;
+        }
+        .namelabel i,.namelabel span {
+            flex: none;
+        }
+    </style>
+
+    <title>Entropy</title>
+  </head>
+  <body>
+    <div class="container">
+        <br/>
+        <div class="row">
+            <h3>Entropy</h3>
+            <h6>Directory statistic info and possible duplicated files.</h6>
+        </div>
+
+        <br/>
+        <div id="top">
+            <div class="input-group mb-3">
+                <span class="input-group-text">Directory :</span>
+                <input type="text" class="form-control"  id="dir" />
+                <button class="btn btn-outline-secondary" type="button" value="Scan" id="scan" onclick="scan()">Scan</button>
+            </div>
+    
+            <div class="row">
+                <div class="col">Scanning at: <span id="rootPath"></span> </div>
+                <div class="col">Error: <span id="errmsg"></span> </div>
+            </div>
+            <div class="row">
+                <div class="col">Duration : <span id="duration"></span> </div>
+                <div class="col">Finished: <span id="finished"></span> </div>
+                <div class="col">Total size: <span id="totalSize"></span> </div>
+                <div class="col">File count : <span id="fileCount"></span> </div>
+                <div class="col">Dir count: <span id="dirCount"></span> </div>
+            </div>
+        </div>
+        <br/>
+
+        <div id="bottom">
+
+            <ul class="nav nav-tabs">
+                <li class="nav-item">
+                  <a class="nav-link active" aria-current="page" href="#">Statistic</a>
+                </li>
+                <!--li class="nav-item">
+                  <a class="nav-link" href="#">Duplicated</a>
+                </li-->
+            </ul>
+            
+            <br/>
+            
+            <div id="tree">
+                    
+            </div>
+            
+            <br/>
+            
+            
+        </div>
+    </div>
+
+    <!-- Option 1: Bootstrap Bundle with Popper -->
+    <script src="./jquery-3.3.1.js"></script>
+    <script src="./bootstrap/js/bootstrap.min.js"></script>
+    <script src="./finder/jquery.finder.js"></script>
+    <script type="text/javascript">
+
+        var host = "../api/"
+        var emitter = null
+        var interval = null
+        var reqserial = 0
+
+        function scan(){
+            dir = $.trim($("#dir").val())
+            $("#dir").val(dir)
+
+            if (dir.length < 1) {
+                alert("no dir")
+                return
+            }
+            $("#dir").attr("disabled", true)
+            $("#scan").attr("disabled", true)
+
+            $.ajax({url: host+"scan?path="+ encodeURIComponent(dir),
+                    success:function(result){
+                        if (result.errcode == 0 ) {
+                            clearInterval(interval)
+                            interval = setInterval(() => {
+                                getStatus()
+                            }, 1000);
+                        } else {
+                            console.log(result)
+                            alert(result.errmsg)
+                        }
+                    },
+                    error: function(e){
+                            console.log(e)
+                            alert("请求出错")
+                    } 
+                }
+            )
+        }
+
+        function getStatus(){
+            $.ajax({url: host+"status?path=" + encodeURIComponent($("#dir").val()) ,
+                    success:function(result){
+                        if (result.errcode == 0 && result.result != null) {
+                            obj = result.result
+                            $("#rootPath").text(obj.rootPath)
+                            $("#errmsg").text(obj.errmsg)
+                            $("#duration").text(obj.duration)
+                            $("#finished").text(obj.finished)
+                            $("#fileCount").text(obj.fileCount)
+                            $("#dirCount").text(obj.dirCount)
+                            $("#totalSize").text(obj.totalSize)
+                            if (obj.finished) {
+                                clearInterval(interval)
+                                interval = null
+                                buildFinder()
+                            }
+                        } else {
+                            console.log(result)
+                            alert(result.errmsg)
+                        }
+                    },
+                    error: function(e){
+                            console.log(e)
+                            clearInterval(interval)
+                            interval = null
+                            alert("请求出错")
+                    } 
+                }
+            )
+        }
+
+        function buildFinder(){
+            emitter = $("#tree").finderjs(getChildren, {
+                createItemContent: createItemContent,
+                labelKey: "name"
+            }).data("_finderjs")
+
+
+            // when a leaf node selected, display the details in a new column
+            //emitter.on('leaf-selected', function selected(item) {
+                //emitter.emit('create-column', createSimpleColumn(item));
+            //});
+
+            // scroll to the right if necessary when a new column is created
+            emitter.on('column-created', function columnCreated() {
+                node = $("#tree")[0]
+                node.scrollLeft = node.scrollWidth - node.clientWidth;
+            });
+        }
+
+        function getChildren(parent, cfg, callback){
+            var loadingIndicator = createLoadingColumn();
+            var reqno = ++reqserial;
+
+            // determine which column we're on based on previous selection
+            np = ""
+            if (parent) {
+                if (parent.isDir) {
+                    np = parent.path
+                } else { // must be a file
+                    return cfg.emitter.emit('create-column', createSimpleColumn(parent));
+                }
+            }
+
+            cfg.emitter.emit('create-column', loadingIndicator);
+            
+            $.ajax({url: host+"children?path=" + encodeURIComponent($("#dir").val()) + "&nodepath=" + encodeURIComponent(np) ,
+                    success:function(result){
+                        if (result.errcode == 0 && result.result != null) {
+                            loadingIndicator.remove();
+                            if (reqno !== reqserial) {
+                                return;
+                            }
+                            callback(result.result);
+                        } else {
+                            console.log(result)
+                            alert(result.errmsg)
+                        }
+                    },
+                    error: function(e){
+                            console.log(e)
+                            alert("请求出错")
+                    } 
+                }
+            )
+        }
+
+        function createLoadingColumn() {
+            var div = $('<div class="fjs-col leaf-col"></div>');
+            var row = $('<div class="leaf-row"></div>');
+            var text = $(document.createTextNode('Loading...')) ;
+            var i = $('<span></span>');
+
+            i.addClass(['fa', 'fa-refresh', 'fa-spin']);
+            row.append([i, text]);
+
+            return div.append(row)[0];
+        }
+
+        function createItemContent(cfg, item) {
+            var data = item;
+            var frag = $(document.createDocumentFragment());
+            var label = $('<span class="namelabel"></span>');
+            var iconPrepend = $('<i></i>');
+            var iconAppend = $('<i></i>');
+            var prependClasses = ['fa'];
+            var appendClasses = ['fa'];
+
+            // prepended icon
+            if (data.isDir) {
+                prependClasses.push('fa-folder');
+            } else {
+                prependClasses.push('fa-file-o');
+            }
+            iconPrepend.addClass(prependClasses);
+
+            // text label
+            label.append(iconPrepend);
+            label.append("<p>" + item.name + "</p>" );
+            label.append("<span class='sizestr'>"+item.sizeStr+"</span>");
+            
+            frag.append(label);
+
+            // appended icon
+            if (data.isDir) {
+                appendClasses.push('fa-caret-right');
+            }
+            iconAppend.addClass(appendClasses);
+            frag.append(iconAppend);
+
+            return frag[0];
+        }
+
+        function createSimpleColumn(item) {
+            var div = $('<div class="fjs-col leaf-col"></div>');
+            var row = $('<div class="leaf-row"></div>');
+            var filename = $(document.createTextNode(item.name));
+            var i = $('<i></i>');
+            var size = $('<div class="meta"></div>');
+            var sizeLabel = $('<strong></strong>');
+            var mod = $('<div class="meta"></div>');
+            var modLabel = $('<strong></strong>');
+
+            i.addClass(['fa', 'fa-file-o']);
+            sizeLabel.append('Size: ');
+            size.append([sizeLabel, item.sizeStr]);
+            modLabel.append('Modified: ');
+            mod.append([modLabel, item.modified]);
+            row.append([i, filename, size, mod]);
+
+            return div.append(row)[0];
+        }
+    </script>
+  </body>
+</html>
