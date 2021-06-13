@@ -250,8 +250,8 @@
             
             $.ajax({url: host+"children?path=" + encodeURIComponent($("#dir").val()) + "&nodepath=" + encodeURIComponent(np) ,
                     success:function(result){
+                        loadingIndicator.remove();
                         if (result.errcode == 0) {
-                            loadingIndicator.remove();
                             if (reqno !== reqserial) {
                                 return;
                             }
@@ -262,6 +262,7 @@
                         }
                     },
                     error: function(e){
+                            loadingIndicator.remove();
                             console.log(e)
                             alert("request error")
                     } 
