@@ -6,6 +6,7 @@ import(
 	"os"
 	"time"
 	"github.com/gin-gonic/gin"
+	"strings"
 )
 
 var resultCache map[string]*result
@@ -115,6 +116,32 @@ func getChildren(c *gin.Context) {
 
 func remove(c *gin.Context) {
 
+	p := c.Query("path")
+	p = filepath.Clean(p)
+	if len(p) < 1 {
+		FailRequest(c, -201, "path error")
+		return
+	}
+	res := resultCache[p]
+	if res == nil {
+		FailRequest(c, -201, "no info, scan first")
+		return
+	}
+
+	nodepath := c.Query("nodepath")
+	if len(nodepath) < 1 || res.nodeCache[nodepath] == nil {
+		FailRequest(c, -201, "path error")
+		return
+	}
+
+	err := os.RemoveAll(nodepath)
+	if err != nil {
+		FailRequest(c, -201, err.Error() )
+		return
+	}
+	res.nodeCache[nodepath].remove()
+	reloadPath, _ := filepath.Rel(res.rootPath, filepath.Dir(nodepath))
+	FinishRequest(c, "ok", strings.Split(reloadPath, string(os.PathSeparator)) )
 }
 
 func getDuplicated(c *gin.Context) {

@@ -46,18 +46,16 @@
   </head>
   <body>
     <div class="container">
-        <br/>
         <div class="row">
             <h3>Entropy</h3>
             <h6>Directory statistic info and possible duplicated files.</h6>
         </div>
 
-        <br/>
         <div id="top">
             <div class="input-group mb-3">
                 <span class="input-group-text">Directory :</span>
                 <input type="text" class="form-control"  id="dir" />
-                <button class="btn btn-outline-secondary" type="button" value="Scan" id="scan" onclick="scan()">Scan</button>
+                <button class="btn btn-outline-secondary" type="button" id="scan" onclick="scan()">Scan</button>
             </div>
     
             <div class="row">
@@ -72,11 +70,10 @@
                 <div class="col">Dir count: <span id="dirCount"></span> </div>
             </div>
         </div>
-        <br/>
 
         <div id="bottom">
 
-            <ul class="nav nav-tabs">
+            <ul class="nav nav-tabs"  style="margin: 10px 0 10px 0;">
                 <li class="nav-item">
                   <a class="nav-link active" aria-current="page" href="#">Statistic</a>
                 </li>
@@ -84,16 +81,22 @@
                   <a class="nav-link" href="#">Duplicated</a>
                 </li-->
             </ul>
-            
-            <br/>
-            
-            <div id="tree">
-                    
+
+            <div id="tab1">
+                <div id="tree"  style="min-height: 400px;">
+                        
+                </div>
+                
+                <div class="input-group mb-3" style="margin: 10px 0 10px 0;">
+                    <span class="input-group-text">Selected :</span>
+                    <input type="text" class="form-control"  id="selectpath" disabled=true/>
+                    <button class="btn btn-outline-danger" type="button" id="remove" onclick="remove()" disabled=true>Remove(Can not undo)</button>
+                </div>
             </div>
-            
-            <br/>
-            
-            
+
+            <div id="tab2">
+
+            </div>
         </div>
     </div>
 
@@ -107,6 +110,8 @@
         var emitter = null
         var interval = null
         var reqserial = 0
+        var selectedItem = null
+        var removing = false
 
         function scan(){
             dir = $.trim($("#dir").val())
@@ -178,16 +183,53 @@
             }).data("_finderjs")
 
 
-            // when a leaf node selected, display the details in a new column
-            //emitter.on('leaf-selected', function selected(item) {
-                //emitter.emit('create-column', createSimpleColumn(item));
-            //});
+            emitter.on('leaf-selected', selectItem);
+
+            emitter.on('interior-selected', selectItem);
 
             // scroll to the right if necessary when a new column is created
             emitter.on('column-created', function columnCreated() {
                 node = $("#tree")[0]
                 node.scrollLeft = node.scrollWidth - node.clientWidth;
             });
+        }
+
+        function selectItem(item){
+            if (removing) {
+                return
+            }
+            $("#selectpath").val(item.path)
+            selectedItem = item
+            $("#remove").attr("disabled", !selectedItem)
+        }
+
+        function remove(){
+            if (!selectedItem || selectedItem.path != $("#selectpath").val()) {
+                return
+            }
+            
+            removing = true
+            $("#remove").attr("disabled", true)
+            $.ajax({url: host+"remove?path=" + encodeURIComponent($("#dir").val()) + "&nodepath=" + encodeURIComponent(selectedItem.path),
+                    success:function(result){
+                        removing = false
+                        if (result.errcode == 0) {
+                            selectedItem = null
+                            $("#selectpath").val()
+                            //bug  emitter.emit('go-to', result.result)
+                            alert("removed")
+                        } else {
+                            $("#remove").attr("disabled", false)
+                            alert(result.errmsg)
+                        }
+                    },
+                    error: function(e){
+                        removing = false
+                        $("#remove").attr("disabled", false)
+                        alert("request error")
+                    }
+                }
+            )
         }
 
         function getChildren(parent, cfg, callback){
@@ -208,7 +250,7 @@
             
             $.ajax({url: host+"children?path=" + encodeURIComponent($("#dir").val()) + "&nodepath=" + encodeURIComponent(np) ,
                     success:function(result){
-                        if (result.errcode == 0 && result.result != null) {
+                        if (result.errcode == 0) {
                             loadingIndicator.remove();
                             if (reqno !== reqserial) {
                                 return;

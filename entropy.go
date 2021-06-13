@@ -61,6 +61,25 @@ func (node *treeNode) sizeStr() string {
 	}
 }
 
+func (node *treeNode) remove() {
+	parent := node.parent
+	if parent == nil {
+		return
+	}
+	child := parent.child
+	node.parent = nil
+	if child == node {
+		parent.child = node.sibling
+	} else {
+		for child.sibling != nil && child.sibling != node {
+			child = child.sibling
+		}
+		if child.sibling == node {
+			child.sibling = node.sibling
+		}
+	}
+}
+
 type result struct {
 	rootNode *treeNode
 	fileCount int64
