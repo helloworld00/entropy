@@ -40,6 +40,20 @@
         .namelabel i,.namelabel span {
             flex: none;
         }
+        .list-group {
+            margin: 10px 0 0 0;
+            word-wrap: break-word;
+        }
+        .gap {
+            margin: 10px 0 10px 0;
+        }
+        .box {
+            min-height: 400px;
+        }
+        #dup {
+            max-height: 600px;
+            overflow-y: scroll;
+        }
     </style>
 
     <title>Entropy</title>
@@ -51,51 +65,54 @@
             <h6>Directory statistic info and possible duplicated files.</h6>
         </div>
 
-        <div id="top">
+        <div id="top" class="row">
             <div class="input-group mb-3">
                 <span class="input-group-text">Directory :</span>
                 <input type="text" class="form-control"  id="dir" />
-                <button class="btn btn-outline-secondary" type="button" id="scan" onclick="scan()">Scan</button>
+                <button class="btn btn-primary" type="button" id="scan" onclick="scan()">Scan</button>
             </div>
     
-            <div class="row">
-                <div class="col">Scanning at: <span id="rootPath"></span> </div>
-                <div class="col">Error: <span id="errmsg"></span> </div>
-            </div>
-            <div class="row">
-                <div class="col">Duration : <span id="duration"></span> </div>
-                <div class="col">Finished: <span id="finished"></span> </div>
-                <div class="col">Total size: <span id="totalSize"></span> </div>
-                <div class="col">File count : <span id="fileCount"></span> </div>
-                <div class="col">Dir count: <span id="dirCount"></span> </div>
+            <div id="status">
+                <div class="row">
+                    <div class="col">Scanning at: <span id="rootPath"></span> </div>
+                    <div class="col">Error: <span id="errmsg"></span> </div>
+                </div>
+                <div class="row">
+                    <div class="col">Duration : <span id="duration"></span> </div>
+                    <div class="col">Finished: <span id="finished"></span> </div>
+                    <div class="col">Total size: <span id="totalSize"></span> </div>
+                    <div class="col">File count : <span id="fileCount"></span> </div>
+                    <div class="col">Dir count: <span id="dirCount"></span> </div>
+                </div>
             </div>
         </div>
 
-        <div id="bottom">
+        <div id="bottom" class="row">
 
-            <ul class="nav nav-tabs"  style="margin: 10px 0 10px 0;">
+            <ul class="nav nav-tabs gap">
                 <li class="nav-item">
-                  <a class="nav-link active" aria-current="page" href="#">Statistic</a>
+                  <a class="nav-link active" href="javascript:tabselect(true);">Statistic</a>
                 </li>
-                <!--li class="nav-item">
-                  <a class="nav-link" href="#">Duplicated</a>
-                </li-->
+                <li class="nav-item">
+                  <a class="nav-link" href="javascript:tabselect(false);">Duplicated</a>
+                </li>
             </ul>
 
-            <div id="tab1">
-                <div id="tree"  style="min-height: 400px;">
+            <div>
+                <div id="tree"  class="box">
                         
                 </div>
-                
-                <div class="input-group mb-3" style="margin: 10px 0 10px 0;">
-                    <span class="input-group-text">Selected :</span>
-                    <input type="text" class="form-control"  id="selectpath" disabled=true/>
-                    <button class="btn btn-outline-danger" type="button" id="remove" onclick="remove()" disabled=true>Remove(Can not undo)</button>
+
+                <div id="dup"  class="box">
+                    <button class="btn btn-primary gap" type="button" id="loadmore" onclick="loadDup()">Load More</button>
+                      
                 </div>
-            </div>
-
-            <div id="tab2">
-
+                
+                <div id="rm" class="input-group mb-3 gap">
+                    <span class="input-group-text">Selected :</span>
+                    <input type="text" class="form-control"  id="selectedpath" disabled=true/>
+                    <button class="btn btn-danger" type="button" id="removebtn" onclick="remove()" disabled=true>Remove(Can not undo)</button>
+                </div>
             </div>
         </div>
     </div>
@@ -107,11 +124,36 @@
     <script type="text/javascript">
 
         var host = "../api/"
-        var emitter = null
+
         var interval = null
+
+        var scanresult = null
+        var emitter = null
+
         var reqserial = 0
         var selectedItem = null
         var removing = false
+
+        var duppgno = 1
+        var isdupoading = false
+
+        $("#dup").hide()
+        $("#bottom").hide()
+        $("#status").hide()
+
+        function tabselect(isstat){
+            if (isstat) {
+                $("#dup").hide()
+                $("#tree").show()
+                $(".nav-link").first().addClass("active")
+                $(".nav-link").last().removeClass("active")
+            } else {
+                $("#tree").hide()
+                $("#dup").show()
+                $(".nav-link").last().addClass("active")
+                $(".nav-link").first().removeClass("active")
+            }
+        }
 
         function scan(){
             dir = $.trim($("#dir").val())
@@ -131,6 +173,7 @@
                             interval = setInterval(() => {
                                 getStatus()
                             }, 1000);
+                            $("#status").show()
                         } else {
                             console.log(result)
                             alert(result.errmsg)
@@ -138,7 +181,7 @@
                     },
                     error: function(e){
                             console.log(e)
-                            alert("request error")
+                            alert("app failed, please restart")
                     } 
                 }
             )
@@ -159,7 +202,10 @@
                             if (obj.finished) {
                                 clearInterval(interval)
                                 interval = null
+                                scanresult = obj
+                                $("#bottom").show()
                                 buildFinder()
+                                loadDup()
                             }
                         } else {
                             console.log(result)
@@ -167,10 +213,10 @@
                         }
                     },
                     error: function(e){
-                            console.log(e)
                             clearInterval(interval)
                             interval = null
-                            alert("request error")
+                            console.log(e)
+                            alert("app failed, please restart")
                     } 
                 }
             )
@@ -192,44 +238,6 @@
                 node = $("#tree")[0]
                 node.scrollLeft = node.scrollWidth - node.clientWidth;
             });
-        }
-
-        function selectItem(item){
-            if (removing) {
-                return
-            }
-            $("#selectpath").val(item.path)
-            selectedItem = item
-            $("#remove").attr("disabled", !selectedItem)
-        }
-
-        function remove(){
-            if (!selectedItem || selectedItem.path != $("#selectpath").val()) {
-                return
-            }
-            
-            removing = true
-            $("#remove").attr("disabled", true)
-            $.ajax({url: host+"remove?path=" + encodeURIComponent($("#dir").val()) + "&nodepath=" + encodeURIComponent(selectedItem.path),
-                    success:function(result){
-                        removing = false
-                        if (result.errcode == 0) {
-                            selectedItem = null
-                            $("#selectpath").val()
-                            //bug  emitter.emit('go-to', result.result)
-                            alert("removed")
-                        } else {
-                            $("#remove").attr("disabled", false)
-                            alert(result.errmsg)
-                        }
-                    },
-                    error: function(e){
-                        removing = false
-                        $("#remove").attr("disabled", false)
-                        alert("request error")
-                    }
-                }
-            )
         }
 
         function getChildren(parent, cfg, callback){
@@ -264,7 +272,81 @@
                     error: function(e){
                             loadingIndicator.remove();
                             console.log(e)
-                            alert("request error")
+                            alert("app failed, please restart")
+                    } 
+                }
+            )
+        }
+
+        function selectItem(item){
+            if (removing) {
+                return
+            }
+            $("#selectedpath").val(item.path)
+            selectedItem = item
+            $("#removebtn").attr("disabled", !selectedItem)
+        }
+
+        function remove(){
+            if (!selectedItem || selectedItem.path != $("#selectedpath").val()) {
+                return
+            }
+            
+            removing = true
+            $("#removebtn").attr("disabled", true)
+            $.ajax({url: host+"remove?path=" + encodeURIComponent($("#dir").val()) + "&nodepath=" + encodeURIComponent(selectedItem.path),
+                    success:function(result){
+                        removing = false
+                        if (result.errcode == 0) {
+                            selectedItem = null
+                            $("#selectedpath").val()
+                            //bug  emitter.emit('go-to', result.result)
+                            alert("removed")
+                        } else {
+                            $("#removebtn").attr("disabled", false)
+                            alert(result.errmsg)
+                        }
+                    },
+                    error: function(e){
+                        removing = false
+                        $("#removebtn").attr("disabled", false)
+                        alert("app failed, please restart")
+                    }
+                }
+            )
+        }
+
+        function loadDup(){
+            if (isdupoading) {
+                return
+            }
+
+            $.ajax({url: host+"duplicated?path=" + encodeURIComponent($("#dir").val()) + "&pageno=" + duppgno + "&pagesize=50",
+                    success:function(result){
+                        isdupoading = false
+                        if (result.errcode == 0) {
+                            ret = result.result
+                            if (!ret.finished) {
+                                duppgno++
+                            }
+                            if (ret.data.length < 1) {
+                                setTimeout(loadDup, 5)
+                            } else {
+                                createListContent(ret.data)
+                                var n = $("#loadmore").remove()
+                                if (!ret.finished) {
+                                    $("#dup").append(n)
+                                }
+                            }
+                        } else {
+                            console.log(result)
+                            alert(result.errmsg)
+                        }
+                    },
+                    error: function(e){
+                            isdupoading = false
+                            console.log(e)
+                            alert("app failed, please restart")
                     } 
                 }
             )
@@ -334,6 +416,21 @@
             row.append([i, filename, size, mod]);
 
             return div.append(row)[0];
+        }
+
+        function createListContent(result) {
+            for (var k in result) {
+                var row = $('<ol class="list-group list-group-numbered"></ol>')
+                for (var i in result[k]) {
+                    var item = $('<li class="list-group-item"></li>')
+                    var node = result[k][i]
+                    item.text(node.path + " " + node.sizeStr)
+                    item.data("_nodeitem", node)
+                    item.click(function(e){selectItem($(e.target).data("_nodeitem") )})
+                    row.append(item)
+                }
+                $("#dup").append(row)
+            }
         }
     </script>
   </body>

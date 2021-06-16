@@ -8,6 +8,8 @@ import(
 	"runtime"
 	"sort"
 	"encoding/json"
+	"crypto/sha256"
+	"io"
 )
 
 type treeNode struct {
@@ -92,7 +94,8 @@ type result struct {
 	errmsg string
 
 	nodeCache map[string]*treeNode
-	duplicatedMap map[int64][]*treeNode
+	duplicatedCache map[int64][]*treeNode
+	duplicatedKeys []int64
 }
 
 func (ret *result) insertNode(node *treeNode) {
@@ -102,8 +105,10 @@ func (ret *result) insertNode(node *treeNode) {
 		ret.rootPath = node.path
 		ret.nodeCache = make(map[string]*treeNode)
 		ret.nodeCache[node.path] = node
-		ret.duplicatedMap = make(map[int64][]*treeNode)
-		ret.duplicatedMap[node.size] = append(ret.duplicatedMap[node.size], node)
+		ret.duplicatedCache = make(map[int64][]*treeNode)
+		if !node.isDir {
+			ret.duplicatedCache[node.size] = append(ret.duplicatedCache[node.size], node)
+		}
 		return
 	}
 	dir := filepath.Dir(node.path)
@@ -131,9 +136,32 @@ func (ret *result) insertNode(node *treeNode) {
 		ret.dirCount++
 	} else {
 		ret.fileCount++
+		ret.duplicatedCache[node.size] = append(ret.duplicatedCache[node.size], node)
 	}
 	ret.nodeCache[node.path] = node
-	ret.duplicatedMap[node.size] = append(ret.duplicatedMap[node.size], node)
+}
+
+func (ret *result)removeNode(node *treeNode){
+	if node == nil {
+		return
+	}
+	node.remove()
+	delete(ret.nodeCache, node.path)
+	arr := ret.duplicatedCache[node.size]
+	
+	if arr != nil {
+		found := -1
+		for i, v := range arr {
+			if v == node {
+				found = i
+				break
+			}
+		}
+		if found >= 0 {
+			arr[found] = arr[len(arr) - 1]
+			ret.duplicatedCache[node.size] = arr[:len(arr) - 1]
+		}
+	}
 }
 
 func (ret *result) getChildren(p string) []*treeNode{
@@ -185,6 +213,86 @@ func fmtDuration(d time.Duration) string {
 func (ret *result) cleanup() {
 	ret.rootNode = nil
 	ret.nodeCache = nil
-	ret.duplicatedMap = nil
+	ret.duplicatedCache = nil
 	runtime.GC()
+}
+
+func (ret *result)genDuplicatedKeys() {
+	
+	allkeys := make([]int64, 0, len(ret.duplicatedCache))
+	for k, v := range ret.duplicatedCache {
+		if v == nil || len(v) < 2 || k == 0{
+			continue
+		}
+		allkeys = append(allkeys, k)
+	}
+	sort.Slice(allkeys, func(i, j int)bool{return allkeys[i] > allkeys[j]})
+	ret.duplicatedKeys = allkeys
+}
+
+func (ret *result)getDuplicated(pageNO, pageSize int) ([][]*treeNode, bool){
+	
+	data := make([][]*treeNode, 0, pageSize)
+	
+	for i := (pageNO-1) * pageSize; i<len(ret.duplicatedKeys) && i < pageNO * pageSize; i++{
+		key := ret.duplicatedKeys[i]
+		val := ret.duplicatedCache[key]
+
+		tmp := make(map[string][]*treeNode, len(val))
+		for _, n := range val {
+			err, hash := getHash(n.path, n.size)
+			if err != nil {
+				continue
+			}
+			tmp[hash] = append(tmp[hash], n)
+		}
+		for _,v1 := range tmp {
+			if len(v1) < 2 {
+				continue
+			}
+			data = append(data, v1)
+		}
+	}
+	
+	return data, pageNO * pageSize >= len(ret.duplicatedKeys)
+}
+
+func getHash(path string, size int64) (error, string) {
+	f, err := os.Open(path)
+	if err != nil {
+		fmt.Println(err)
+		return err, ""
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if size < 1024 * 1024 * 50 {
+		if _, err := io.Copy(h, f); err != nil {
+			fmt.Println(err)
+			return err, ""
+		}
+	} else {
+		if _, err := io.CopyN(h, f, 1024); err != nil {
+			fmt.Println(err)
+			return err, ""
+		}
+		if _, err := f.Seek(size/2, 0); err != nil {
+			fmt.Println(err)
+			return err, ""
+		}
+		if _, err := io.CopyN(h, f, 1024); err != nil {
+			fmt.Println(err)
+			return err, ""
+		}
+		if _, err := f.Seek(-1025, 2); err != nil {
+			fmt.Println(err)
+			return err, ""
+		}
+		if _, err := io.CopyN(h, f, 1024); err != nil {
+			fmt.Println(err)
+			return err, ""
+		}
+	}
+
+	return nil, fmt.Sprintf("%x", h.Sum(nil))
 }

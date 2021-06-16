@@ -7,6 +7,7 @@ import(
 	"time"
 	"github.com/gin-gonic/gin"
 	"strings"
+	"strconv"
 )
 
 var resultCache map[string]*result
@@ -68,6 +69,9 @@ func walkThrough(root string) {
 	ret := resultCache[root]
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error{
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
 		node := &treeNode{}
 		node.setInfo(info, path)
 		ret.insertNode(node)
@@ -77,30 +81,18 @@ func walkThrough(root string) {
 		fmt.Println(err)
 		ret.errmsg = err.Error()
 	}
+	ret.genDuplicatedKeys()
 	ret.finished = true
 	ret.endTime = time.Now()
 }
 
 func getStatus(c *gin.Context) {
-	p := c.Query("path")
-	p = filepath.Clean(p)
-	if len(p) < 1 {
-		FailRequest(c, -201, "path error")
-		return
-	}
-	res := resultCache[p]
-	
+	res := getResFromRequest(c)
 	FinishRequest(c, "ok", res)
 }
 
 func getChildren(c *gin.Context) {
-	p := c.Query("path")
-	p = filepath.Clean(p)
-	if len(p) < 1 {
-		FailRequest(c, -201, "path error")
-		return
-	}
-	res := resultCache[p]
+	res := getResFromRequest(c)
 	if res == nil {
 		FailRequest(c, -201, "no info, scan first")
 		return
@@ -115,17 +107,10 @@ func getChildren(c *gin.Context) {
 }
 
 func remove(c *gin.Context) {
-
-	p := c.Query("path")
-	p = filepath.Clean(p)
-	if len(p) < 1 {
-		FailRequest(c, -201, "path error")
-		return
-	}
-	res := resultCache[p]
+	res := getResFromRequest(c)
 	if res == nil {
 		FailRequest(c, -201, "no info, scan first")
-		return
+		return 
 	}
 
 	nodepath := c.Query("nodepath")
@@ -139,11 +124,44 @@ func remove(c *gin.Context) {
 		FailRequest(c, -201, err.Error() )
 		return
 	}
-	res.nodeCache[nodepath].remove()
+	node := res.nodeCache[nodepath]
+	res.removeNode(node)
 	reloadPath, _ := filepath.Rel(res.rootPath, filepath.Dir(nodepath))
 	FinishRequest(c, "ok", strings.Split(reloadPath, string(os.PathSeparator)) )
 }
 
-func getDuplicated(c *gin.Context) {
+func getResFromRequest(c *gin.Context) *result {
+	p := c.Query("path")
+	p = filepath.Clean(p)
+	if len(p) < 1 {
+		return nil
+	}
+	res := resultCache[p]
+	if res == nil {
+		return nil
+	}
+	return res
+}
 
+func getDuplicated(c *gin.Context) {
+	res := getResFromRequest(c)
+	if res == nil {
+		FailRequest(c, -201, "no info, scan first")
+		return 
+	}
+	pno := c.DefaultQuery("pageno", "1")
+	psz := c.DefaultQuery("pagesize", "20")
+	pnoi, err1 := strconv.Atoi(pno)
+	pszi, err2 := strconv.Atoi(psz)
+	if err1 != nil {
+		pnoi = 1
+	}
+	if err2 != nil {
+		pszi = 20
+	}
+	data, finished := res.getDuplicated(pnoi, pszi)
+	ret := make(map[string]interface{})
+	ret["data"] = data
+	ret["finished"] = finished
+	FinishRequest(c, "ok",  ret)
 }
