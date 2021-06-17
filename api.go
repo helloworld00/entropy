@@ -69,7 +69,7 @@ func walkThrough(root string) {
 	ret := resultCache[root]
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error{
-		if info.Mode()&os.ModeSymlink != 0 {
+		if info == nil || info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
 		node := &treeNode{}
